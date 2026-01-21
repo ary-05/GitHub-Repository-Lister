@@ -14,10 +14,11 @@ function toggleLoader(show) {
 let currentPage = 1;
 const reposPerPage = 10;
 let totalPages = 0;
+let currentUsername = '';
+
 function changePage(change) {
     currentPage += change;
 
-    // Ensure the page number is within bounds
     if (currentPage < 1) {
         currentPage = 1;
     }
@@ -25,25 +26,26 @@ function changePage(change) {
         currentPage = totalPages;
     }
 
-    // Update the API request with the new page
     fetchRepos();
 }
 
 function fetchRepos() {
     const usernameInput = document.getElementById('username');
-    const username = usernameInput.value;
+    const username = usernameInput.value.trim();
 
     if (!username) {
         alert('Please enter a GitHub username.');
         return;
     }
 
+    currentUsername = username;
+    currentPage = 1;
     toggleLoader(true);
 
+    // Fetch user info
     fetch(`https://api.github.com/users/${username}`)
         .then(response => {
             const remainingRequests = response.headers.get('X-RateLimit-Remaining');
-          //  console.log(remainingRequests);
             if (remainingRequests !== null && parseInt(remainingRequests) < 1) {
                 throw new Error('API rate limit exceeded. Please try again later.');
             }
@@ -53,79 +55,100 @@ function fetchRepos() {
             return response.json();
         })
         .then(user => {
-            totalPages = Math.ceil(user.public_repos / 10);
-            const avatar = document.getElementById('avatar');
-            const userInfo = document.getElementById('userInfo');
-            const about = document.getElementById('bio');
-            const location = document.getElementById('location');
-            const twitterUrl = document.getElementById('twitter-url');
-            const blogUrl = document.getElementById('blog-url');
-            const profileSection = document.getElementById('profile-section');
-            const gitprofile = document.getElementById('github-profile');
-
-            avatar.src = user.avatar_url;
-            userInfo.innerHTML = `<a href=${user.html_url} class="text-decoration-none text-black">${user.name || user.login}</a>`;
-            about.innerHTML = user.bio ? `${user.bio}` : "";
-            location.innerHTML = user.location ? `🌍 ${user.location}` : "";
-            twitterUrl.innerHTML = user.twitter_username ? `Twitter :  <a href="https://twitter.com/${user.twitter_username}" target="_blank"> ${user.twitter_username} </a>` : '';
-            blogUrl.innerHTML = user.blog ? `🔗  <a href="${user.blog}" target="_blank">${user.blog}</a>` : '';
-            gitprofile.setAttribute('href', user.html_url);
-            // Show the profile section
-            profileSection.style.display = 'flex';
-            
+            totalPages = Math.ceil(user.public_repos / reposPerPage);
+            displayUserProfile(user);
         })
         .catch(error => {
             console.error('Error fetching user info:', error);
-            alert(error);
+            alert(error.message || 'An error occurred while fetching user data.');
         })
         .finally(() => toggleLoader(false));
-    //console.log(totalPages);
-    const startIndex = (currentPage - 1) * reposPerPage;
-    const apiUrl = `https://api.github.com/users/${username}/repos?per_page=${reposPerPage}&page=${currentPage}`;
-    const paginationSection = document.getElementById('pagination');
+
+    // Fetch repositories
+    const apiUrl = `https://api.github.com/users/${username}/repos?per_page=${reposPerPage}&page=${currentPage}&sort=updated&direction=desc`;
     toggleLoader(true);
+
     fetch(apiUrl)
         .then(response => {
             const remainingRequests = response.headers.get('X-RateLimit-Remaining');
-           // console.log(remainingRequests);
             if (remainingRequests !== null && parseInt(remainingRequests) < 1) {
                 throw new Error('API rate limit exceeded. Please try again later.');
             }
-
+            if (!response.ok) {
+                throw new Error('Unable to fetch repositories.');
+            }
             return response.json();
         })
         .then(repos => {
-            const reposList = document.getElementById('repos-list');
-            reposList.innerHTML = ''; // Clear previous results
-
-            repos.forEach(repo => {
-                const repoCard = document.createElement('div');
-                repoCard.className = 'repo-card';
-                const topicsHtml = repo.topics
-                    ? repo.topics.map(topic => `<div class="topics">${topic}</div>`).join('')
-                    : '';
-                repoCard.innerHTML = `
-                        <a href="${repo.html_url}" class="repo-link">
-                            <h3 style="color:#3a85c7;">${repo.name}</h3>
-                            <p>${repo.description || ''}</p>
-                            <div class="topic-container">${topicsHtml}</div>
-                        </a>
-                    `;
-
-                reposList.appendChild(repoCard);
-            });
-
-            updatePagination();
-            paginationSection.style.display = 'flex';
-            renderPageNumbers();
+            displayRepositories(repos);
         })
         .catch(error => {
             console.error('Error fetching repositories:', error);
-            paginationSection.style.display = 'none';
+            alert(error.message || 'An error occurred while fetching repositories.');
         })
         .finally(() => toggleLoader(false));
 }
-renderPageNumbers();
+
+function displayUserProfile(user) {
+    const avatar = document.getElementById('avatar');
+    const userInfo = document.getElementById('userInfo');
+    const bio = document.getElementById('bio');
+    const location = document.getElementById('location');
+    const twitterUrl = document.getElementById('twitter-url');
+    const blogUrl = document.getElementById('blog-url');
+    const profileSection = document.getElementById('profile-section');
+    const gitprofile = document.getElementById('github-profile');
+
+    avatar.src = user.avatar_url;
+    avatar.alt = `${user.name || user.login}'s avatar`;
+    
+    userInfo.innerHTML = `<a href="${user.html_url}" target="_blank" rel="noopener noreferrer">${user.name || user.login}</a>`;
+    bio.innerHTML = user.bio ? `<p>${user.bio}</p>` : '';
+    location.innerHTML = user.location ? `<span>📍 ${user.location}</span>` : '';
+    twitterUrl.innerHTML = user.twitter_username ? `<span>𝕏 <a href="https://twitter.com/${user.twitter_username}" target="_blank" rel="noopener noreferrer">${user.twitter_username}</a></span>` : '';
+    blogUrl.innerHTML = user.blog ? `<span>🔗 <a href="${user.blog}" target="_blank" rel="noopener noreferrer">${user.blog}</a></span>` : '';
+    
+    gitprofile.setAttribute('href', user.html_url);
+    gitprofile.setAttribute('target', '_blank');
+    gitprofile.setAttribute('rel', 'noopener noreferrer');
+    
+    profileSection.style.display = 'flex';
+}
+
+function displayRepositories(repos) {
+    const reposList = document.getElementById('repos-list');
+    reposList.innerHTML = '';
+
+    if (repos.length === 0) {
+        reposList.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #999; padding: 40px;">No repositories found.</p>';
+        return;
+    }
+
+    repos.forEach(repo => {
+        const repoCard = document.createElement('div');
+        repoCard.className = 'repo-card';
+        
+        const topicsHtml = repo.topics && repo.topics.length > 0
+            ? repo.topics.map(topic => `<div class="topics">${topic}</div>`).join('')
+            : '';
+
+        const description = repo.description ? repo.description.substring(0, 150) : 'No description available';
+        
+        repoCard.innerHTML = `
+            <a href="${repo.html_url}" target="_blank" rel="noopener noreferrer" class="repo-link">
+                <h3>${repo.name}</h3>
+                <p>${description}${repo.description && repo.description.length > 150 ? '...' : ''}</p>
+                <div class="topic-container">${topicsHtml}</div>
+            </a>
+        `;
+
+        reposList.appendChild(repoCard);
+    });
+
+    updatePagination();
+    renderPageNumbers();
+}
+
 function updatePagination() {
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
@@ -134,16 +157,43 @@ function updatePagination() {
     prevBtn.disabled = currentPage === 1;
     nextBtn.disabled = currentPage >= totalPages;
 
-    currentPageElement.textContent = `Page ${currentPage}/${totalPages}`;
+    currentPageElement.textContent = `Page ${currentPage} of ${totalPages}`;
 }
+
 function renderPageNumbers() {
     const pageNumbersContainer = document.getElementById('pageNumbers');
     pageNumbersContainer.innerHTML = '';
 
-    for (let i = 1; i <= totalPages; i++) {
+    const maxPages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxPages / 2));
+    let endPage = Math.min(totalPages, startPage + maxPages - 1);
+
+    if (endPage - startPage < maxPages - 1) {
+        startPage = Math.max(1, endPage - maxPages + 1);
+    }
+
+    if (startPage > 1) {
+        const firstPage = document.createElement('span');
+        firstPage.className = 'page-number';
+        firstPage.textContent = '1';
+        firstPage.addEventListener('click', () => {
+            currentPage = 1;
+            fetchRepos();
+        });
+        pageNumbersContainer.appendChild(firstPage);
+
+        if (startPage > 2) {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'page-number';
+            ellipsis.textContent = '...';
+            ellipsis.style.cursor = 'default';
+            pageNumbersContainer.appendChild(ellipsis);
+        }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
         const pageNumber = document.createElement('span');
-        pageNumber.className = `page-number  ${i === currentPage ? 'current-page' : ''}`;
-        pageNumber.style="padding:5px 10px; border: 1px solid black;";
+        pageNumber.className = `page-number ${i === currentPage ? 'current-page' : ''}`;
         pageNumber.textContent = i;
 
         pageNumber.addEventListener('click', () => {
@@ -153,4 +203,32 @@ function renderPageNumbers() {
 
         pageNumbersContainer.appendChild(pageNumber);
     }
+
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'page-number';
+            ellipsis.textContent = '...';
+            ellipsis.style.cursor = 'default';
+            pageNumbersContainer.appendChild(ellipsis);
+        }
+
+        const lastPage = document.createElement('span');
+        lastPage.className = 'page-number';
+        lastPage.textContent = totalPages;
+        lastPage.addEventListener('click', () => {
+            currentPage = totalPages;
+            fetchRepos();
+        });
+        pageNumbersContainer.appendChild(lastPage);
+    }
 }
+
+// Allow Enter key to search
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('username').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            fetchRepos();
+        }
+    });
+});
